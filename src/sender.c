@@ -12,6 +12,35 @@ struct timeval* host_get_next_expiring_timeval(Host* host) {
     return NULL;
 }
 
+void build_frame(Host* host, char* message, uint8_t dst_id){
+	int msg_len = strlen(message) + 1;
+	int offset = 0;
+
+	while(offset < msg_len){
+		int bytes_to_copy = min(msg_len - offset, FRAME_PAYLOAD_SIZE);
+
+		Frame* frame = malloc(sizeof(Frame));
+		assert(frame);
+
+		frame->remaining_msg_bytes = msg_len - offset - bytes_to_copy;
+		frame->src_id = host->id;
+		frame->dst_id = dst_id;
+		frame->seq_num = host->next_seq_num;
+		frame->is_ack = 0;
+		
+		memcpy(frame->data, message + offset, bytes_to_copy);
+
+		char* buffer = convert_frame_to_char(frame);
+		frame->crc8 = compute_crc8(buffer);
+		free(buffer);
+
+		ll_append_node(&host->buffered_outframes_head, frame);
+
+		offset += bytes_to_copy;
+		host->next_seq_num++;
+	}
+}
+
 void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 
     // Num of acks received from each receiver
@@ -51,26 +80,11 @@ void handle_input_cmds(Host* host, struct timeval curr_timeval) {
         // Cast to Cmd type and free up the memory for the node
         Cmd* outgoing_cmd = (Cmd*) ll_input_cmd_node->value;
         free(ll_input_cmd_node);
- 
-        int msg_length = strlen(outgoing_cmd->message) + 1; // +1 to account for null terminator 
-        if (msg_length > FRAME_PAYLOAD_SIZE) {
-            // Do something about messages that exceed the frame size
-            printf(
-                "<SEND_%d>: sending messages of length greater than %d is not "
-                "implemented\n",
-                host->id, MAX_FRAME_SIZE);
-        } else {
-            Frame* outgoing_frame = malloc(sizeof(Frame));
-            assert(outgoing_frame);
-            strcpy(outgoing_frame->data, outgoing_cmd->message);
-            outgoing_frame->src_id = outgoing_cmd->src_id;
-            outgoing_frame->dst_id = outgoing_cmd->dst_id;
-            // At this point, we don't need the outgoing_cmd
-            free(outgoing_cmd->message);
-            free(outgoing_cmd);
-
-            ll_append_node(&host->buffered_outframes_head, outgoing_frame);
-        }
+        
+		build_frame(host, outgoing_cmd->message, outgoing_cmd->dst_id);
+		
+		free(outgoing_cmd->message);
+		free(outgoing_cmd);
     }
 }
 

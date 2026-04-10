@@ -26,10 +26,10 @@ sizing, and congestion control.
 
 ## Project Info
 
-| Field | Value |
-|-------|-------|
-| **Name** | |
-| **PID**  | |
+| Field    | Value       |
+| -------- | ----------- |
+| **Name** | Andre Giske |
+| **PID**  | A17918324   |
 
 ---
 
@@ -62,7 +62,7 @@ against `exp_out.txt`. CSV diagnostics are written to `csv_files/`.
 ## Config Files
 
 | File                      | Description                 |
-|---------------------------|-----------------------------|
+| ------------------------- | --------------------------- |
 | `test_suite/basic.cfg`    | Basic 2-host setup          |
 | `test_suite/cc_basic.cfg` | Congestion control baseline |
 | `test_suite/sw4.cfg`      | 4-port switch topology      |

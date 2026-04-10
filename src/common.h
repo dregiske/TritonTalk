@@ -161,7 +161,7 @@ struct Host_t {
     struct send_window_slot* send_window;
     struct timeval* latest_timeout; 
 
-	uint8_t next_seq_num;
+	uint8_t next_seq_num[256];
 	uint8_t expected_seq_num[256];
 
 	char* message_buffer[256];

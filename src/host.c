@@ -11,7 +11,7 @@ void init_host(Host* host, int id) {
     host->round_trip_num = 0; 
     host->csv_out = 0; 
 
-	host->next_seq_num = 0;
+	memset(host->next_seq_num, 0, sizeof(host->next_seq_num));
 	memset(host->expected_seq_num, 0, sizeof(host->expected_seq_num));
 	
 	memset(host->message_buffer, 0, sizeof(host->message_buffer));

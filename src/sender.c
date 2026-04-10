@@ -38,6 +38,7 @@ void build_frame(Host* host, char* message, uint8_t dst_id){
 		
 		memcpy(frame->data, message + offset, bytes_to_copy);
 
+		frame->crc8 = 0;
 		char* buffer = convert_frame_to_char(frame);
 		frame->crc8 = compute_crc8(buffer);
 		free(buffer);

@@ -1,6 +1,8 @@
 #include "host.h"
 #include <assert.h>
 #include "switch.h"
+#include <stdbool.h>
+
 
 struct timeval* host_get_next_expiring_timeval(Host* host) {
     // Returns the timeval when next timeout should occur
@@ -57,12 +59,37 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
     uint8_t num_dup_acks_for_this_rtt[glb_num_hosts];     //PA1b
     memset(num_dup_acks_for_this_rtt, 0, glb_num_hosts); 
 
-    // TODO: Suggested steps for handling incoming ACKs
     //    1) Dequeue the ACK frame from host->incoming_frames_head
     //    2) Compute CRC of the ack frame to know whether it is corrupted
     //    3) Check if the ack is valid i.e. within the window slot 
     //    4) Implement logic as per sliding window protocol to track ACK for what frame is expected,
     //       and what to do when ACK for expected frame is received
+
+	int ack_queue_length = ll_get_length(host->incoming_frames_head);
+	while (ack_queue_length > 0) {
+		LLnode* ack_node = ll_pop_node(&host->incoming_frames_head);
+		ack_queue_length = ll_get_length(host->incoming_frames_head);
+		Frame* ack_frame = (Frame*)ack_node->value;
+		free(ack_node);
+
+		if (!check_crc8(ack_frame)) { free(ack_frame); continue; }
+		if (ack_frame->is_ack != 1) { free(ack_frame); continue; }
+
+		for (int i = 0; i < glb_sysconfig.window_size; i++) {
+			if (host->send_window[i].frame != NULL) {
+				int diff = seq_num_diff(ack_frame->seq_num, host->send_window[i].frame->seq_num);
+				if (diff <= 0) {
+					free(host->send_window[i].frame);
+					host->send_window[i].frame = NULL;
+					if (host->send_window[i].timeout != NULL) {
+						free(host->send_window[i].timeout);
+						host->send_window[i].timeout = NULL;
+					}
+				}
+			}
+		}
+		free(ack_frame);
+	}
 
     if (host->id == glb_sysconfig.host_send_cc_id) {
         fprintf(cc_diagnostics,"%d,%d,%d,",host->round_trip_num, num_acks_received[glb_sysconfig.host_recv_cc_id], num_dup_acks_for_this_rtt[glb_sysconfig.host_recv_cc_id]); 

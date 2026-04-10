@@ -163,6 +163,7 @@ struct Host_t {
 
 	uint8_t next_seq_num;
 	uint8_t expected_seq_num[256];
+	Frame* recv_buffer[256][8];
 
     CongestionControl* cc; //PA1b ONLY
 };

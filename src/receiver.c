@@ -1,9 +1,20 @@
 #include "host.h"
 #include <assert.h>
 #include "switch.h"
+#include <stdbool.h>
+
+bool check_crc8(Frame* frame){
+	char* buffer = convert_frame_to_char(frame);
+	int crc8_result = compute_crc8(buffer);
+	free(buffer);
+
+	if(crc8_result != 0){
+		return false;
+	}
+	return true;
+}
 
 void handle_incoming_frames(Host* host) {
-    // TODO: Suggested steps for handling incoming frames
     //    1) Dequeue the Frame from the host->incoming_frames_head
     //    2) Compute CRC of incoming frame to know whether it is corrupted
     //    3) If frame is corrupted, drop it and move on.
@@ -18,7 +29,15 @@ void handle_incoming_frames(Host* host) {
         LLnode* ll_inmsg_node = ll_pop_node(&host->incoming_frames_head);
         incoming_frames_length = ll_get_length(host->incoming_frames_head);
 
-        Frame* inframe = ll_inmsg_node->value; 
+        Frame* inframe = (Frame*)ll_inmsg_node->value; 
+
+		if (!check_crc8(inframe)){
+			free(inframe);
+			free(ll_inmsg_node);
+			continue;
+		}
+		
+
 
         printf("<RECV_%d>:[%s]\n", host->id, inframe->data);
 

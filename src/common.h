@@ -162,6 +162,7 @@ struct Host_t {
     struct timeval* latest_timeout; 
 
 	uint8_t next_seq_num;
+	uint8_t expected_seq_num[256];
 
     CongestionControl* cc; //PA1b ONLY
 };

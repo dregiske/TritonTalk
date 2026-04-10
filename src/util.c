@@ -153,7 +153,14 @@ Frame* convert_char_to_frame(char* char_buf) {
     return frame;
 }
 
-// helper function for wraparound case 
+bool check_crc8(Frame* frame) {
+    char* buffer = convert_frame_to_char(frame);
+    int result = compute_crc8(buffer);
+    free(buffer);
+    return result == 0;
+}
+
+// helper function for wraparound case
 int seq_num_diff(uint8_t x1, uint8_t x2) { 
     int diff = x2 - x1;
     if (diff > 127) {

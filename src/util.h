@@ -1,6 +1,7 @@
 #ifndef __UTIL_H__
 #define __UTIL_H__
 
+#include <stdbool.h>
 #include "common.h"
 
 #include <math.h>
@@ -38,6 +39,7 @@ int seq_num_diff(uint8_t, uint8_t);
 
 // CRC-8 Computation
 uint8_t compute_crc8(char* frameChar);
+bool check_crc8(Frame* frame);
 
 int min(int, int); 
 double min_double(double, double); 

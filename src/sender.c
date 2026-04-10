@@ -90,9 +90,19 @@ void handle_input_cmds(Host* host, struct timeval curr_timeval) {
 
 void handle_timedout_frames(Host* host, struct timeval curr_timeval) {
 
-    // TODO: Detect frames that have timed out
+    // Detect frames that have timed out
     // Check your send_window for the frames that have timed out and set send_window[i]->timeout = NULL
     // You will re-send the actual frames and set the timeout in handle_outgoing_frames()
+	for (int i = 0; i < glb_sysconfig.window_size; i++) {
+		struct timeval* timeout = host->send_window[i].timeout;
+		if (host->send_window[i].frame != NULL &&
+			timeout != NULL){
+			if (timeval_usecdiff(&curr_timeval, timeout) >= 0){
+				free(timeout);
+				host->send_window[i].timeout = NULL;
+			}
+		}
+	}
 }
 
 void handle_outgoing_frames(Host* host, struct timeval curr_timeval) {
@@ -103,13 +113,20 @@ void handle_outgoing_frames(Host* host, struct timeval curr_timeval) {
         memcpy(&curr_timeval, host->latest_timeout, sizeof(struct timeval)); 
     }
 
-    //TODO: Send out the frames that have timed out(i.e. timeout = NULL)
     for (int i = 0; i < glb_sysconfig.window_size; i++) {
+		if (host->send_window[i].frame != NULL &&
+			host->send_window[i].timeout == NULL) {
+			ll_append_node(&host->outgoing_frames_head, host->send_window[i].frame);
 
+			struct timeval* next_timeout = malloc(sizeof(struct timeval));
+			memcpy(next_timeout, &curr_timeval, sizeof(struct timeval));
+			timeval_usecplus(next_timeout, TIMEOUT_INTERVAL_USEC + additional_ts);
+			additional_ts += 10000;
+
+			host->send_window[i].timeout = next_timeout;
+		}
     }
 
-    //TODO: The code is incomplete and needs to be changed to have a correct behavior
-    //Suggested steps: 
     //1) Within the for loop, check if the window is not full and there's space to send more frames 
     //2) If there is, pop from the buffered_outframes_head queue and fill your send_window_slot data structure with appropriate fields. 
     //3) Append the popped frame to the host->outgoing_frames_head
@@ -129,6 +146,9 @@ void handle_outgoing_frames(Host* host, struct timeval curr_timeval) {
             memcpy(next_timeout, &curr_timeval, sizeof(struct timeval)); 
             timeval_usecplus(next_timeout, TIMEOUT_INTERVAL_USEC + additional_ts);
             additional_ts += 10000; //ADD ADDITIONAL 10ms
+
+			host->send_window[i].frame = outgoing_frame;
+			host->send_window[i].timeout = next_timeout;
 
             free(ll_outframe_node);
         }

@@ -89,10 +89,8 @@ void handle_input_cmds(Host* host, struct timeval curr_timeval) {
 }
 
 void handle_timedout_frames(Host* host, struct timeval curr_timeval) {
-
     // Detect frames that have timed out
     // Check your send_window for the frames that have timed out and set send_window[i]->timeout = NULL
-    // You will re-send the actual frames and set the timeout in handle_outgoing_frames()
 	for (int i = 0; i < glb_sysconfig.window_size; i++) {
 		struct timeval* timeout = host->send_window[i].timeout;
 		if (host->send_window[i].frame != NULL &&

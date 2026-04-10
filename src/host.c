@@ -13,6 +13,7 @@ void init_host(Host* host, int id) {
 
 	host->next_seq_num = 0;
 	memset(host->expected_seq_num, 0, sizeof(host->expected_seq_num));
+	memset(host->recv_buffer, 0, sizeof(host->recv_buffer));
     
     host->input_cmdlist_head = NULL;
     host->incoming_frames_head = NULL; 

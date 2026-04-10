@@ -3,13 +3,19 @@
 #include "switch.h"
 
 struct timeval* host_get_next_expiring_timeval(Host* host) {
-    // TODO: You should fill in this function so that it returns the 
-    // timeval when next timeout should occur
-    // 
+    // Returns the timeval when next timeout should occur
     // 1) Check your send_window for the timeouts of the frames. 
     // 2) Return the timeout of a single frame. 
-    // HINT: It's not the frame with the furtherst/latest timeout. 
-    return NULL;
+	struct timeval* earliest = NULL;
+	for(int i = 0; i < glb_sysconfig.window_size; ++i){
+		struct timeval* timeout = host->send_window[i].timeout;
+		if(host->send_window[i].frame != NULL && timeout != NULL){
+			if(earliest == NULL || timeval_usecdiff(timeout, earliest) < 0){
+				earliest = timeout;
+			}
+		}
+	}
+    return earliest;
 }
 
 void build_frame(Host* host, char* message, uint8_t dst_id){
@@ -64,7 +70,6 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 }
 
 void handle_input_cmds(Host* host, struct timeval curr_timeval) {
-    // TODO: Suggested steps for handling input cmd
     //    1) Dequeue the Cmd from host->input_cmdlist_head
     //    2) Implement fragmentation if the message length is larger than FRAME_PAYLOAD_SIZE
     //    3) Set up the frame according to the protocol

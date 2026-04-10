@@ -25,9 +25,6 @@ void init_host(Host* host, int id) {
     host->latest_timeout = malloc(sizeof(struct timeval));
     gettimeofday(host->latest_timeout, NULL);
 
-    // TODO: You should fill in this function as necessary to initialize variables
-
-
     // *********** PA1b ONLY ***********
     host->cc = calloc(glb_num_hosts, sizeof(CongestionControl));
     for (int i = 0; i < glb_num_hosts; i++) {

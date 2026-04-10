@@ -12,6 +12,7 @@ void init_host(Host* host, int id) {
     host->csv_out = 0; 
 
 	host->next_seq_num = 0;
+	memset(host->expected_seq_num, 0, sizeof(host->expected_seq_num));
     
     host->input_cmdlist_head = NULL;
     host->incoming_frames_head = NULL; 

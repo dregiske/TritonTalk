@@ -35,12 +35,13 @@ void handle_incoming_frames(Host* host) {
 		int src = inframe->src_id;
 		int bytes_to_copy = (inframe->remaining_msg_bytes == 0)
 							? strlen(inframe->data) + 1
-							: strlen(inframe->data);
+							: FRAME_PAYLOAD_SIZE;
 
 		uint8_t expected = host->expected_seq_num[inframe->src_id];
-		if(inframe->seq_num == expected){
-			host->expected_seq_num[inframe->src_id]++;
+		int diff = seq_num_diff(inframe->seq_num, expected);
 
+		if(diff == 0){
+			host->expected_seq_num[inframe->src_id]++;
 
 			// realloc buffer size
 			host->message_buffer[src] = realloc(host->message_buffer[src],
@@ -49,25 +50,23 @@ void handle_incoming_frames(Host* host) {
 			// copy message into message buffer
 			memcpy(host->message_buffer[src] + host->message_buffer_len[src],
 												inframe->data, bytes_to_copy);
-			
+
 			// update length
 			host->message_buffer_len[inframe->src_id] += bytes_to_copy;
-		}
-		else{
+
+			if(inframe->remaining_msg_bytes == 0) {
+				printf("<RECV_%d>:[%s]\n", host->id, host->message_buffer[src]);
+				free(host->message_buffer[src]);
+				host->message_buffer[src] = NULL;
+				host->message_buffer_len[src] = 0;
+			}
+		} else if(diff < 0) {
+			// out-of-order frame drop it
 			free(inframe);
 			free(ll_inmsg_node);
 			continue;
 		}
-		
 
-		if(inframe->remaining_msg_bytes == 0) {
-			printf("<RECV_%d>:[%s]\n", host->id, host->message_buffer[src]);
-			free(host->message_buffer[src]);
-			host->message_buffer[src] = NULL;
-			host->message_buffer_len[src] = 0;
-		}
-
-		// Build and send ACK frame to host
 		Frame* ack = malloc(sizeof(Frame));
 		assert(ack);
 		ack->dst_id = inframe->src_id;

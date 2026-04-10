@@ -1,8 +1,6 @@
 #include "host.h"
 #include <assert.h>
 #include "switch.h"
-#include <stdbool.h>
-
 
 struct timeval* host_get_next_expiring_timeval(Host* host) {
     // Returns the timeval when next timeout should occur
@@ -33,9 +31,9 @@ void build_frame(Host* host, char* message, uint8_t dst_id){
 		frame->remaining_msg_bytes = msg_len - offset - bytes_to_copy;
 		frame->src_id = host->id;
 		frame->dst_id = dst_id;
-		frame->seq_num = host->next_seq_num;
+		frame->seq_num = host->next_seq_num[dst_id];
 		frame->is_ack = 0;
-		
+
 		memcpy(frame->data, message + offset, bytes_to_copy);
 
 		frame->crc8 = 0;
@@ -46,7 +44,7 @@ void build_frame(Host* host, char* message, uint8_t dst_id){
 		ll_append_node(&host->buffered_outframes_head, frame);
 
 		offset += bytes_to_copy;
-		host->next_seq_num++;
+		host->next_seq_num[dst_id]++;
 	}
 }
 
@@ -60,11 +58,11 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
     uint8_t num_dup_acks_for_this_rtt[glb_num_hosts];     //PA1b
     memset(num_dup_acks_for_this_rtt, 0, glb_num_hosts); 
 
-    //    1) Dequeue the ACK frame from host->incoming_frames_head
-    //    2) Compute CRC of the ack frame to know whether it is corrupted
-    //    3) Check if the ack is valid i.e. within the window slot 
-    //    4) Implement logic as per sliding window protocol to track ACK for what frame is expected,
-    //       and what to do when ACK for expected frame is received
+	// 1) Dequeue the ACK frame from host->incoming_frames_head
+	// 2) Compute CRC of the ack frame to know whether it is corrupted
+	// 3) Check if the ack is valid i.e. within the window slot 
+	// 4) Implement logic as per sliding window protocol to track ACK for what frame is expected,
+	// 	  and what to do when ACK for expected frame is received
 
 	int ack_queue_length = ll_get_length(host->incoming_frames_head);
 	while (ack_queue_length > 0) {
@@ -77,7 +75,8 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 		if (ack_frame->is_ack != 1) { free(ack_frame); continue; }
 
 		for (int i = 0; i < glb_sysconfig.window_size; i++) {
-			if (host->send_window[i].frame != NULL) {
+			if (host->send_window[i].frame != NULL &&
+				host->send_window[i].frame->dst_id == ack_frame->src_id) {
 				int diff = seq_num_diff(ack_frame->seq_num, host->send_window[i].frame->seq_num);
 				if (diff <= 0) {
 					free(host->send_window[i].frame);
@@ -147,7 +146,10 @@ void handle_outgoing_frames(Host* host, struct timeval curr_timeval) {
     for (int i = 0; i < glb_sysconfig.window_size; i++) {
 		if (host->send_window[i].frame != NULL &&
 			host->send_window[i].timeout == NULL) {
-			ll_append_node(&host->outgoing_frames_head, host->send_window[i].frame);
+			Frame* retransmit_copy = malloc(sizeof(Frame));
+			assert(retransmit_copy);
+			memcpy(retransmit_copy, host->send_window[i].frame, sizeof(Frame));
+			ll_append_node(&host->outgoing_frames_head, retransmit_copy);
 
 			struct timeval* next_timeout = malloc(sizeof(struct timeval));
 			memcpy(next_timeout, &curr_timeval, sizeof(struct timeval));
@@ -164,9 +166,12 @@ void handle_outgoing_frames(Host* host, struct timeval curr_timeval) {
     for (int i = 0; i < glb_sysconfig.window_size && ll_get_length(host->buffered_outframes_head) > 0; i++) {
         if (host->send_window[i].frame == NULL) {
             LLnode* ll_outframe_node = ll_pop_node(&host->buffered_outframes_head);
-            Frame* outgoing_frame = ll_outframe_node->value; 
+            Frame* outgoing_frame = ll_outframe_node->value;
 
-            ll_append_node(&host->outgoing_frames_head, outgoing_frame); 
+            Frame* send_copy = malloc(sizeof(Frame));
+            assert(send_copy);
+            memcpy(send_copy, outgoing_frame, sizeof(Frame));
+            ll_append_node(&host->outgoing_frames_head, send_copy);
             
             //Set a timeout for this frame
             //NOTE: Each dataframe(not ack frame) that is appended to the 

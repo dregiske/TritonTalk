@@ -1,18 +1,7 @@
 #include "host.h"
 #include <assert.h>
 #include "switch.h"
-#include <stdbool.h>
 
-bool check_crc8(Frame* frame){
-	char* buffer = convert_frame_to_char(frame);
-	int crc8_result = compute_crc8(buffer);
-	free(buffer);
-
-	if(crc8_result != 0){
-		return false;
-	}
-	return true;
-}
 
 void handle_incoming_frames(Host* host) {
     //    1) Dequeue the Frame from the host->incoming_frames_head

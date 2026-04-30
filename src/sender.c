@@ -73,13 +73,16 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 		free(ack_node);
 
 		if (!check_crc8(ack_frame)) { free(ack_frame); continue; }
-		if (ack_frame->is_ack != 1) { free(ack_frame); continue; }
+		if (ack_frame->is_ack == 0) { free(ack_frame); continue; }
 
 		for (int i = 0; i < glb_sysconfig.window_size; i++) {
 			if (host->send_window[i].frame != NULL &&
 				host->send_window[i].frame->dst_id == ack_frame->src_id) {
 				int diff = seq_num_diff(ack_frame->seq_num, host->send_window[i].frame->seq_num);
-				if (diff == 0) {
+				// is_ack=1: cumulative — clear all slots whose seq_num <= ack seq_num
+				// is_ack=2: selective — clear only the exact matching slot
+				int should_clear = (ack_frame->is_ack == 1) ? (diff <= 0) : (diff == 0);
+				if (should_clear) {
 					free(host->send_window[i].frame);
 					host->send_window[i].frame = NULL;
 					if (host->send_window[i].timeout != NULL) {

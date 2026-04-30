@@ -3,87 +3,94 @@
 #include "switch.h"
 
 
+static void deliver_to_buffer(Host* host, int src, Frame* frame) {
+    int bytes_to_copy = (frame->remaining_msg_bytes == 0)
+                        ? (int)strlen(frame->data) + 1
+                        : FRAME_PAYLOAD_SIZE;
+
+    host->message_buffer[src] = realloc(host->message_buffer[src],
+                                         host->message_buffer_len[src] + bytes_to_copy);
+    memcpy(host->message_buffer[src] + host->message_buffer_len[src],
+           frame->data, bytes_to_copy);
+    host->message_buffer_len[src] += bytes_to_copy;
+
+    if (frame->remaining_msg_bytes == 0) {
+        printf("<RECV_%d>:[%s]\n", host->id, host->message_buffer[src]);
+        free(host->message_buffer[src]);
+        host->message_buffer[src] = NULL;
+        host->message_buffer_len[src] = 0;
+    }
+}
+
+static void send_ack(Host* host, uint8_t dst_id, uint8_t seq_num) {
+    Frame* ack = malloc(sizeof(Frame));
+    assert(ack);
+    ack->dst_id = dst_id;
+    ack->src_id = host->id;
+    ack->seq_num = seq_num;
+    ack->is_ack = 1;
+    ack->remaining_msg_bytes = 0;
+    memset(ack->data, 0, FRAME_PAYLOAD_SIZE);
+    ack->crc8 = 0;
+    char* ack_buf = convert_frame_to_char(ack);
+    ack->crc8 = compute_crc8(ack_buf);
+    free(ack_buf);
+    ll_append_node(&host->outgoing_frames_head, ack);
+}
+
 void handle_incoming_frames(Host* host) {
-    //    1) Dequeue the Frame from the host->incoming_frames_head
-    //    2) Compute CRC of incoming frame to know whether it is corrupted
-    //    3) If frame is corrupted, drop it and move on.
-    //    4) Implement logic to check if the expected frame has come
-    //    5) Implement logic to combine payload received from all frames belonging to a message
-    //       and print the final message when all frames belonging to a message have been received.
-    //    6) Implement the cumulative acknowledgement part of the sliding window protocol
-    //    7) Append acknowledgement frames to the outgoing_frames_head queue
     int incoming_frames_length = ll_get_length(host->incoming_frames_head);
     while (incoming_frames_length > 0) {
-        // Pop a node off the front of the link list and update the count
         LLnode* ll_inmsg_node = ll_pop_node(&host->incoming_frames_head);
         incoming_frames_length = ll_get_length(host->incoming_frames_head);
-
         Frame* inframe = (Frame*)ll_inmsg_node->value;
-		
-		if (!check_crc8(inframe)){ // check for corruption
-			free(inframe);
-			free(ll_inmsg_node);
-			continue;
-		}
-
-		if(inframe->is_ack == 1){ // check for acknowledgement frame
-			free(inframe);
-			free(ll_inmsg_node);
-			continue;
-		}
-
-		int src = inframe->src_id;
-		int bytes_to_copy = (inframe->remaining_msg_bytes == 0)
-							? strlen(inframe->data) + 1
-							: FRAME_PAYLOAD_SIZE;
-
-		uint8_t expected = host->expected_seq_num[inframe->src_id];
-		int diff = seq_num_diff(inframe->seq_num, expected);
-
-		if(diff == 0){
-			host->expected_seq_num[inframe->src_id]++;
-
-			// realloc buffer size
-			host->message_buffer[src] = realloc(host->message_buffer[src],
-												host->message_buffer_len[src] + bytes_to_copy);
-
-			// copy message into message buffer
-			memcpy(host->message_buffer[src] + host->message_buffer_len[src],
-												inframe->data, bytes_to_copy);
-
-			// update length
-			host->message_buffer_len[inframe->src_id] += bytes_to_copy;
-
-			if(inframe->remaining_msg_bytes == 0) {
-				printf("<RECV_%d>:[%s]\n", host->id, host->message_buffer[src]);
-				free(host->message_buffer[src]);
-				host->message_buffer[src] = NULL;
-				host->message_buffer_len[src] = 0;
-			}
-		} else if(diff < 0) {
-			// out-of-order frame drop it
-			free(inframe);
-			free(ll_inmsg_node);
-			continue;
-		}
-
-		Frame* ack = malloc(sizeof(Frame));
-		assert(ack);
-		ack->dst_id = inframe->src_id;
-		ack->src_id = host->id;
-		ack->seq_num = inframe->seq_num;
-		ack->is_ack = 1;
-		ack->remaining_msg_bytes = 0;
-		memset(ack->data, 0, FRAME_PAYLOAD_SIZE);
-		ack->crc8 = 0;
-		char* ack_buf = convert_frame_to_char(ack);
-		ack->crc8 = compute_crc8(ack_buf);
-		free(ack_buf);
-
-		ll_append_node(&host->outgoing_frames_head, ack);
-
-        free(inframe);
         free(ll_inmsg_node);
+
+        if (!check_crc8(inframe)) { free(inframe); continue; }
+        if (inframe->is_ack == 1)  { free(inframe); continue; }
+
+        int src = inframe->src_id;
+        uint8_t ack_seq = inframe->seq_num;
+        uint8_t expected = host->expected_seq_num[src];
+        int diff = seq_num_diff(inframe->seq_num, expected);
+        // diff = expected - seq_num:
+        //   > 0  old/duplicate frame
+        //   == 0 exactly what we want
+        //   < 0  future frame (seq > expected)
+
+        if (diff == 0) {
+            deliver_to_buffer(host, src, inframe);
+            free(inframe);
+            host->expected_seq_num[src]++;
+
+            // drain any contiguous buffered frames
+            while (1) {
+                uint8_t next = host->expected_seq_num[src];
+                Frame* buffered = host->recv_ooo_buffer[src * 256 + next];
+                if (buffered == NULL) break;
+                deliver_to_buffer(host, src, buffered);
+                host->recv_ooo_buffer[src * 256 + next] = NULL;
+                free(buffered);
+                host->expected_seq_num[src]++;
+            }
+        } else if (diff < 0) {
+            // future frame: buffer if within window, drop if outside
+            int abs_diff = -diff;
+            if (abs_diff >= glb_sysconfig.window_size) {
+                free(inframe);
+                continue; // outside window, no ACK
+            }
+            if (host->recv_ooo_buffer[src * 256 + inframe->seq_num] == NULL) {
+                host->recv_ooo_buffer[src * 256 + inframe->seq_num] = inframe;
+            } else {
+                free(inframe); // duplicate of an already-buffered frame
+            }
+        } else {
+            // old/duplicate: just re-ACK, don't reprocess
+            free(inframe);
+        }
+
+        send_ack(host, src, ack_seq);
     }
 }
 

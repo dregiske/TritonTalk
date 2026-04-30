@@ -167,6 +167,8 @@ struct Host_t {
 	char* message_buffer[256];
 	int message_buffer_len[256];
 
+	Frame** recv_ooo_buffer; // [src_id * 256 + seq_num], calloc'd in init_host
+
     CongestionControl* cc; //PA1b ONLY
 };
 typedef struct Host_t Host;

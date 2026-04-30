@@ -16,6 +16,8 @@ void init_host(Host* host, int id) {
 	
 	memset(host->message_buffer, 0, sizeof(host->message_buffer));
 	memset(host->message_buffer_len, 0, sizeof(host->message_buffer_len));
+
+	host->recv_ooo_buffer = calloc(glb_num_hosts * 256, sizeof(Frame*));
     
     host->input_cmdlist_head = NULL;
     host->incoming_frames_head = NULL; 

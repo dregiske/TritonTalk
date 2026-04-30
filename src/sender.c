@@ -10,7 +10,7 @@ struct timeval* host_get_next_expiring_timeval(Host* host) {
 	for(int i = 0; i < glb_sysconfig.window_size; ++i){
 		struct timeval* timeout = host->send_window[i].timeout;
 		if(host->send_window[i].frame != NULL && timeout != NULL){
-			if(earliest == NULL || timeval_usecdiff(timeout, earliest) < 0){
+			if(earliest == NULL || timeval_usecdiff(timeout, earliest) > 0){
 				earliest = timeout;
 			}
 		}
@@ -34,6 +34,7 @@ void build_frame(Host* host, char* message, uint8_t dst_id){
 		frame->seq_num = host->next_seq_num[dst_id];
 		frame->is_ack = 0;
 
+		memset(frame->data, 0, FRAME_PAYLOAD_SIZE);
 		memcpy(frame->data, message + offset, bytes_to_copy);
 
 		frame->crc8 = 0;
@@ -78,7 +79,7 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 			if (host->send_window[i].frame != NULL &&
 				host->send_window[i].frame->dst_id == ack_frame->src_id) {
 				int diff = seq_num_diff(ack_frame->seq_num, host->send_window[i].frame->seq_num);
-				if (diff <= 0) {
+				if (diff == 0) {
 					free(host->send_window[i].frame);
 					host->send_window[i].frame = NULL;
 					if (host->send_window[i].timeout != NULL) {
@@ -127,7 +128,7 @@ void handle_timedout_frames(Host* host, struct timeval curr_timeval) {
 		struct timeval* timeout = host->send_window[i].timeout;
 		if (host->send_window[i].frame != NULL &&
 			timeout != NULL){
-			if (timeval_usecdiff(&curr_timeval, timeout) >= 0){
+			if (timeval_usecdiff(&curr_timeval, timeout) <= 0){
 				free(timeout);
 				host->send_window[i].timeout = NULL;
 			}

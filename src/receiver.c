@@ -22,13 +22,15 @@ static void deliver_to_buffer(Host* host, int src, Frame* frame) {
     }
 }
 
-static void send_ack(Host* host, uint8_t dst_id, uint8_t seq_num) {
+// is_ack_type=1: cumulative (in-order delivery — covers all frames up to seq_num)
+// is_ack_type=2: selective  (out-of-order buffer ACK — covers only this seq_num)
+static void send_ack(Host* host, uint8_t dst_id, uint8_t seq_num, uint8_t is_ack_type) {
     Frame* ack = malloc(sizeof(Frame));
     assert(ack);
     ack->dst_id = dst_id;
     ack->src_id = host->id;
     ack->seq_num = seq_num;
-    ack->is_ack = 1;
+    ack->is_ack = is_ack_type;
     ack->remaining_msg_bytes = 0;
     memset(ack->data, 0, FRAME_PAYLOAD_SIZE);
     ack->crc8 = 0;
@@ -47,7 +49,7 @@ void handle_incoming_frames(Host* host) {
         free(ll_inmsg_node);
 
         if (!check_crc8(inframe)) { free(inframe); continue; }
-        if (inframe->is_ack == 1)  { free(inframe); continue; }
+        if (inframe->is_ack != 0)  { free(inframe); continue; }
 
         int src = inframe->src_id;
         uint8_t ack_seq = inframe->seq_num;
@@ -73,6 +75,8 @@ void handle_incoming_frames(Host* host) {
                 free(buffered);
                 host->expected_seq_num[src]++;
             }
+            // is_ack=1: cumulative — covers all frames up to last delivered
+            send_ack(host, src, (uint8_t)(host->expected_seq_num[src] - 1), 1);
         } else if (diff < 0) {
             // future frame: buffer if within window, drop if outside
             int abs_diff = -diff;
@@ -85,12 +89,13 @@ void handle_incoming_frames(Host* host) {
             } else {
                 free(inframe); // duplicate of an already-buffered frame
             }
+            // is_ack=2: selective — only clears this specific slot at the sender
+            send_ack(host, src, ack_seq, 2);
         } else {
-            // old/duplicate: just re-ACK, don't reprocess
+            // old/duplicate: re-ACK as cumulative (harmless, slot already cleared)
             free(inframe);
+            send_ack(host, src, ack_seq, 1);
         }
-
-        send_ack(host, src, ack_seq);
     }
 }
 

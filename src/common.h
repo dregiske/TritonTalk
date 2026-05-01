@@ -170,6 +170,9 @@ struct Host_t {
 	Frame** recv_ooo_buffer;
 
     CongestionControl* cc; //PA1b ONLY
+
+    int frames_sent_rtt;
+    int frames_dropped_rtt;
 };
 typedef struct Host_t Host;
 /*

@@ -32,6 +32,9 @@ void init_host(Host* host, int id) {
     gettimeofday(host->latest_timeout, NULL);
 
     // *********** PA1b ONLY ***********
+    host->frames_sent_rtt = 0;
+    host->frames_dropped_rtt = 0;
+
     host->cc = calloc(glb_num_hosts, sizeof(CongestionControl));
     for (int i = 0; i < glb_num_hosts; i++) {
         host->cc[i].cwnd = 1.0; 

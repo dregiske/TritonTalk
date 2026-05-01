@@ -81,15 +81,23 @@ void fast_retransmit(Host* host, uint8_t recv_id) {
 }
 
 void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
-    (void)curr_timeval;
-
-    // Num of acks received from each receiver
-    uint8_t num_acks_received[glb_num_hosts]; 
-    memset(num_acks_received, 0, glb_num_hosts); 
-
-    // Num of duplicate acks received from each receiver this rtt
-    uint8_t num_dup_acks_for_this_rtt[glb_num_hosts];     //PA1b
-    memset(num_dup_acks_for_this_rtt, 0, glb_num_hosts); 
+    int cc_reset[glb_num_hosts];
+    memset(cc_reset, 0, sizeof(int) * glb_num_hosts);
+    for (int i = 0; i < glb_sysconfig.window_size; i++) {
+        if (host->send_window[i].frame != NULL && host->send_window[i].timeout != NULL) {
+            if (timeval_usecdiff(&curr_timeval, host->send_window[i].timeout) <= 0) {
+                uint8_t dst_id = host->send_window[i].frame->dst_id;
+                if (!cc_reset[dst_id]) {
+                    host->cc[dst_id].ssthresh = max_double(host->cc[dst_id].cwnd / 2.0, 2.0);
+                    host->cc[dst_id].cwnd = 1.0;
+                    host->cc[dst_id].dup_acks = 0;
+                    host->cc[dst_id].state = cc_SS;
+                    cc_reset[dst_id] = 1;
+                    host->frames_dropped_rtt++;
+                }
+            }
+        }
+    }
 
 	int ack_queue_length = ll_get_length(host->incoming_frames_head);
 	while (ack_queue_length > 0) {
@@ -126,7 +134,8 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 		uint8_t recv_id = ack_frame->src_id;
 		CongestionControl* cc = &host->cc[recv_id];
 		if (cleared_any) {
-			num_acks_received[ack_frame->src_id]++;
+			if (ack_frame->src_id == (uint8_t)glb_sysconfig.host_recv_cc_id)
+				host->acks_received_rtt++;
 
 			switch (cc->state) {
 				case cc_SS:
@@ -149,7 +158,8 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 					break;
 			}
 		} else {
-			num_dup_acks_for_this_rtt[ack_frame->src_id]++;
+			if (ack_frame->src_id == (uint8_t)glb_sysconfig.host_recv_cc_id)
+				host->dup_acks_rtt++;
 			cc->dup_acks++;
 
 			if(cc->dup_acks == 3){
@@ -165,36 +175,16 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 		free(ack_frame);
 	}
 
-    if (host->id == glb_sysconfig.host_send_cc_id) {
-        int recv_cc = glb_sysconfig.host_recv_cc_id;
-        CongestionControl* cc = &host->cc[recv_cc];
-
-        int frames_in_window = count_frames_in_flight(host, recv_cc);
-
-        int timedout = 0;
-        for (int i = 0; i < glb_sysconfig.window_size; i++) {
-            if (host->send_window[i].frame != NULL &&
-                host->send_window[i].frame->dst_id == recv_cc &&
-                host->send_window[i].timeout == NULL) {
-                timedout++;
-            }
-        }
-
-        fprintf(cc_diagnostics, "%d,%d,%d,%s,%f,%f,%d,%d,%d,%d\n",
-            host->round_trip_num,
-            num_acks_received[recv_cc],
-            num_dup_acks_for_this_rtt[recv_cc],
-            cc_state_to_char(cc->state),
-            cc->cwnd,
-            cc->ssthresh,
-            host->frames_sent_rtt,
-            host->frames_dropped_rtt,
-            frames_in_window,
-            timedout);
-
-        host->frames_sent_rtt = 0;
-        host->frames_dropped_rtt = 0;
-    }
+	if (host->id == glb_sysconfig.host_send_cc_id) {
+		fprintf(cc_diagnostics, "%d,%d,%d,",
+			host->round_trip_num,
+			host->acks_received_rtt,
+			host->dup_acks_rtt);
+		host->acks_received_rtt = 0;
+		host->dup_acks_rtt = 0;
+		host->frames_sent_rtt = 0;
+		host->frames_dropped_rtt = 0;
+	}
 }
 
 void handle_input_cmds(Host* host, struct timeval curr_timeval) {
@@ -231,14 +221,7 @@ void handle_timedout_frames(Host* host, struct timeval curr_timeval) {
             host->send_window[i].timeout != NULL) {
             if (timeval_usecdiff(&curr_timeval, host->send_window[i].timeout) <= 0) {
                 uint8_t dst_id = host->send_window[i].frame->dst_id;
-                host->frames_dropped_rtt++;
-                if (!cc_reset[dst_id]) {
-                    host->cc[dst_id].ssthresh = max_double(host->cc[dst_id].cwnd / 2.0, 2.0);
-                    host->cc[dst_id].cwnd = 1.0;
-                    host->cc[dst_id].dup_acks = 0;
-                    host->cc[dst_id].state = cc_SS;
-                    cc_reset[dst_id] = 1;
-                }
+                cc_reset[dst_id] = 1;
             }
         }
     }

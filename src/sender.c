@@ -2,6 +2,17 @@
 #include <assert.h>
 #include "switch.h"
 
+int count_frames_in_flight(Host* host, uint8_t destination) {
+	int count = 0;
+	for (int i = 0; i < glb_sysconfig.window_size; ++i){
+		if(host->send_window[i].frame != NULL &&
+		   host->send_window[i].frame->dst_id == destination){
+			count++;
+		}
+	}
+	return count;
+}
+
 struct timeval* host_get_next_expiring_timeval(Host* host) {
     // Returns the timeval when next timeout should occur
     // 1) Check your send_window for the timeouts of the frames. 
@@ -70,6 +81,7 @@ void fast_retransmit(Host* host, uint8_t recv_id) {
 }
 
 void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
+    (void)curr_timeval;
 
     // Num of acks received from each receiver
     uint8_t num_acks_received[glb_num_hosts]; 
@@ -186,6 +198,7 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 }
 
 void handle_input_cmds(Host* host, struct timeval curr_timeval) {
+    (void)curr_timeval;
     //    1) Dequeue the Cmd from host->input_cmdlist_head
     //    2) Implement fragmentation if the message length is larger than FRAME_PAYLOAD_SIZE
     //    3) Set up the frame according to the protocol
@@ -241,16 +254,6 @@ void handle_timedout_frames(Host* host, struct timeval curr_timeval) {
     }
 }
 
-int count_frames_in_flight(Host* host, uint8_t destination) {
-	int count = 0;
-	for (int i = 0; i < glb_sysconfig.window_size; ++i){
-		if(host->send_window[i].frame != NULL &&
-		   host->send_window[i].frame->dst_id == destination){
-			count++;
-		}
-	}
-	return count;
-}
 
 void handle_outgoing_frames(Host* host, struct timeval curr_timeval) {
 

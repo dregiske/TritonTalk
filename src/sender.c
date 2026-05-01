@@ -49,7 +49,7 @@ void build_frame(Host* host, char* message, uint8_t dst_id){
 	}
 }
 
-void* fast_retransmit(Host* host, uint8_t recv_id) {
+void fast_retransmit(Host* host, uint8_t recv_id) {
 	int lowest_index = -1;
 	uint8_t lowest_seq = 0;
 	for (int i = 0; i < glb_sysconfig.window_size; ++i){
@@ -139,7 +139,7 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 			cc->dup_acks++;
 
 			if(cc->dup_acks == 3){
-				cc->ssthresh = max(cc->cwnd / 2, 2);
+				cc->ssthresh = max_double(cc->cwnd / 2, 2);
 				cc->cwnd = cc->ssthresh + 3;
 				cc->state = cc_FRFT;
 				fast_retransmit(host, recv_id);

@@ -148,7 +148,6 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 				cc->cwnd++;
 			}
 		}
-
 		free(ack_frame);
 	}
 
@@ -184,16 +183,35 @@ void handle_input_cmds(Host* host, struct timeval curr_timeval) {
 void handle_timedout_frames(Host* host, struct timeval curr_timeval) {
     // Detect frames that have timed out
     // Check your send_window for the frames that have timed out and set send_window[i]->timeout = NULL
-	for (int i = 0; i < glb_sysconfig.window_size; i++) {
-		struct timeval* timeout = host->send_window[i].timeout;
-		if (host->send_window[i].frame != NULL &&
-			timeout != NULL){
-			if (timeval_usecdiff(&curr_timeval, timeout) <= 0){
-				free(timeout);
-				host->send_window[i].timeout = NULL;
-			}
-		}
-	}
+
+    int cc_reset[glb_num_hosts];
+    memset(cc_reset, 0, sizeof(int) * glb_num_hosts);
+
+    for (int i = 0; i < glb_sysconfig.window_size; i++) {
+        if (host->send_window[i].frame != NULL &&
+            host->send_window[i].timeout != NULL) {
+            if (timeval_usecdiff(&curr_timeval, host->send_window[i].timeout) <= 0) {
+                uint8_t dst_id = host->send_window[i].frame->dst_id;
+                if (!cc_reset[dst_id]) {
+                    host->cc[dst_id].ssthresh = max_double(host->cc[dst_id].cwnd / 2.0, 2.0);
+                    host->cc[dst_id].cwnd = 1.0;
+                    host->cc[dst_id].dup_acks = 0;
+                    host->cc[dst_id].state = cc_SS;
+                    cc_reset[dst_id] = 1;
+                }
+            }
+        }
+    }
+
+    for (int i = 0; i < glb_sysconfig.window_size; i++) {
+        if (host->send_window[i].frame != NULL) {
+            uint8_t dst_id = host->send_window[i].frame->dst_id;
+            if (cc_reset[dst_id] && host->send_window[i].timeout != NULL) {
+                free(host->send_window[i].timeout);
+                host->send_window[i].timeout = NULL;
+            }
+        }
+    }
 }
 
 int count_frames_in_flight(Host* host, uint8_t destination) {

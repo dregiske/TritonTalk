@@ -34,6 +34,8 @@ void init_host(Host* host, int id) {
     // *********** PA1b ONLY ***********
     host->frames_sent_rtt = 0;
     host->frames_dropped_rtt = 0;
+    host->acks_received_rtt = 0;
+    host->dup_acks_rtt = 0;
 
     host->cc = calloc(glb_num_hosts, sizeof(CongestionControl));
     for (int i = 0; i < glb_num_hosts; i++) {

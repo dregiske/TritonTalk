@@ -173,6 +173,8 @@ struct Host_t {
 
     int frames_sent_rtt;
     int frames_dropped_rtt;
+    int acks_received_rtt;
+    int dup_acks_rtt;
 };
 typedef struct Host_t Host;
 /*

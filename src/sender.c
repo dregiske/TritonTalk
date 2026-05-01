@@ -49,6 +49,26 @@ void build_frame(Host* host, char* message, uint8_t dst_id){
 	}
 }
 
+void* fast_retransmit(Host* host, uint8_t recv_id) {
+	int lowest_index = -1;
+	uint8_t lowest_seq = 0;
+	for (int i = 0; i < glb_sysconfig.window_size; ++i){
+		if(host->send_window[i].frame != NULL &&
+		   host->send_window[i].frame->dst_id == recv_id){
+			if(lowest_index == -1 || seq_num_diff(host->send_window[i].frame->seq_num, lowest_seq) > 0) {
+				lowest_seq = host->send_window[i].frame->seq_num;
+				lowest_index = i;
+			}
+		}
+	}
+	if(lowest_index != -1) {
+		if(host->send_window[lowest_index].timeout != NULL){
+			free(host->send_window[lowest_index].timeout);
+			host->send_window[lowest_index].timeout = NULL;
+		}
+	}
+}
+
 void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 
     // Num of acks received from each receiver
@@ -58,12 +78,6 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
     // Num of duplicate acks received from each receiver this rtt
     uint8_t num_dup_acks_for_this_rtt[glb_num_hosts];     //PA1b
     memset(num_dup_acks_for_this_rtt, 0, glb_num_hosts); 
-
-	// 1) Dequeue the ACK frame from host->incoming_frames_head
-	// 2) Compute CRC of the ack frame to know whether it is corrupted
-	// 3) Check if the ack is valid i.e. within the window slot 
-	// 4) Implement logic as per sliding window protocol to track ACK for what frame is expected,
-	// 	  and what to do when ACK for expected frame is received
 
 	int ack_queue_length = ll_get_length(host->incoming_frames_head);
 	while (ack_queue_length > 0) {
@@ -75,6 +89,9 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 		if (!check_crc8(ack_frame)) { free(ack_frame); continue; }
 		if (ack_frame->is_ack == 0) { free(ack_frame); continue; }
 
+		int cleared_any = 0;
+		int slots_cleared = 0;
+
 		for (int i = 0; i < glb_sysconfig.window_size; i++) {
 			if (host->send_window[i].frame != NULL &&
 				host->send_window[i].frame->dst_id == ack_frame->src_id) {
@@ -83,6 +100,8 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 				// is_ack=2: selective — clear only the exact matching slot
 				int should_clear = (ack_frame->is_ack == 1) ? (diff <= 0) : (diff == 0);
 				if (should_clear) {
+					cleared_any = 1;
+					slots_cleared++;
 					free(host->send_window[i].frame);
 					host->send_window[i].frame = NULL;
 					if (host->send_window[i].timeout != NULL) {
@@ -92,6 +111,44 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 				}
 			}
 		}
+		uint8_t recv_id = ack_frame->src_id;
+		CongestionControl* cc = &host->cc[recv_id];
+		if (cleared_any) {
+			num_acks_received[ack_frame->src_id]++;
+
+			switch (cc->state) {
+				case cc_SS:
+					for(int i = 0; i < slots_cleared; ++i){
+						cc->cwnd++;
+					}
+					if(cc->cwnd >= cc->ssthresh){
+						cc->state = cc_AIMD;
+					}
+					break;
+				case cc_AIMD:
+					cc->cwnd += 1.0/cc->cwnd;
+					break;
+				case cc_FRFT:
+					cc->cwnd = cc->ssthresh;
+					cc->dup_acks = 0;
+					cc->state = cc_AIMD;
+					break;
+			}
+		} else {
+			num_dup_acks_for_this_rtt[ack_frame->src_id]++;
+			cc->dup_acks++;
+
+			if(cc->dup_acks == 3){
+				cc->ssthresh = max(cc->cwnd / 2, 2);
+				cc->cwnd = cc->ssthresh + 3;
+				cc->state = cc_FRFT;
+				fast_retransmit(host, recv_id);
+			}
+			else if (cc->dup_acks > 3){
+				cc->cwnd++;
+			}
+		}
+
 		free(ack_frame);
 	}
 
@@ -196,11 +253,6 @@ void handle_outgoing_frames(Host* host, struct timeval curr_timeval) {
             memcpy(send_copy, outgoing_frame, sizeof(Frame));
             ll_append_node(&host->outgoing_frames_head, send_copy);
 
-            //Set a timeout for this frame
-            //NOTE: Each dataframe(not ack frame) that is appended to the
-            //host->outgoing_frames_head has to have a 10ms offset from
-            //the previous frame to enable selective retransmission mechanism.
-            //Already implemented below
             struct timeval* next_timeout = malloc(sizeof(struct timeval));
             memcpy(next_timeout, &curr_timeval, sizeof(struct timeval));
             timeval_usecplus(next_timeout, TIMEOUT_INTERVAL_USEC + additional_ts);

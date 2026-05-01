@@ -152,7 +152,34 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 	}
 
     if (host->id == glb_sysconfig.host_send_cc_id) {
-        fprintf(cc_diagnostics,"%d,%d,%d,",host->round_trip_num, num_acks_received[glb_sysconfig.host_recv_cc_id], num_dup_acks_for_this_rtt[glb_sysconfig.host_recv_cc_id]); 
+        int recv_cc = glb_sysconfig.host_recv_cc_id;
+        CongestionControl* cc = &host->cc[recv_cc];
+
+        int frames_in_window = count_frames_in_flight(host, recv_cc);
+
+        int timedout = 0;
+        for (int i = 0; i < glb_sysconfig.window_size; i++) {
+            if (host->send_window[i].frame != NULL &&
+                host->send_window[i].frame->dst_id == recv_cc &&
+                host->send_window[i].timeout == NULL) {
+                timedout++;
+            }
+        }
+
+        fprintf(cc_diagnostics, "%d,%d,%d,%s,%f,%f,%d,%d,%d,%d\n",
+            host->round_trip_num,
+            num_acks_received[recv_cc],
+            num_dup_acks_for_this_rtt[recv_cc],
+            cc_state_to_char(cc->state),
+            cc->cwnd,
+            cc->ssthresh,
+            host->frames_sent_rtt,
+            host->frames_dropped_rtt,
+            frames_in_window,
+            timedout);
+
+        host->frames_sent_rtt = 0;
+        host->frames_dropped_rtt = 0;
     }
 }
 
@@ -181,9 +208,6 @@ void handle_input_cmds(Host* host, struct timeval curr_timeval) {
 }
 
 void handle_timedout_frames(Host* host, struct timeval curr_timeval) {
-    // Detect frames that have timed out
-    // Check your send_window for the frames that have timed out and set send_window[i]->timeout = NULL
-
     int cc_reset[glb_num_hosts];
     memset(cc_reset, 0, sizeof(int) * glb_num_hosts);
 
@@ -192,6 +216,7 @@ void handle_timedout_frames(Host* host, struct timeval curr_timeval) {
             host->send_window[i].timeout != NULL) {
             if (timeval_usecdiff(&curr_timeval, host->send_window[i].timeout) <= 0) {
                 uint8_t dst_id = host->send_window[i].frame->dst_id;
+                host->frames_dropped_rtt++;
                 if (!cc_reset[dst_id]) {
                     host->cc[dst_id].ssthresh = max_double(host->cc[dst_id].cwnd / 2.0, 2.0);
                     host->cc[dst_id].cwnd = 1.0;
@@ -280,6 +305,7 @@ void handle_outgoing_frames(Host* host, struct timeval curr_timeval) {
             host->send_window[i].timeout = next_timeout;
 
             free(ll_outframe_node);
+            host->frames_sent_rtt++;
             count++;
         }
     }

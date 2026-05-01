@@ -118,6 +118,7 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 
 			switch (cc->state) {
 				case cc_SS:
+					cc->dup_acks = 0;
 					for(int i = 0; i < slots_cleared; ++i){
 						cc->cwnd++;
 					}
@@ -126,6 +127,7 @@ void handle_incoming_acks(Host* host, struct timeval curr_timeval) {
 					}
 					break;
 				case cc_AIMD:
+					cc->dup_acks = 0;
 					cc->cwnd += 1.0/cc->cwnd;
 					break;
 				case cc_FRFT:

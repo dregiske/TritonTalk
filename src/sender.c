@@ -139,6 +139,17 @@ void handle_timedout_frames(Host* host, struct timeval curr_timeval) {
 	}
 }
 
+int count_frames_in_flight(Host* host, uint8_t destination) {
+	int count = 0;
+	for (int i = 0; i < glb_sysconfig.window_size; ++i){
+		if(host->send_window[i].frame != NULL &&
+		   host->send_window[i].frame->dst_id == destination){
+			count++;
+		}
+	}
+	return count;
+}
+
 void handle_outgoing_frames(Host* host, struct timeval curr_timeval) {
 
     long additional_ts = 0; 
@@ -164,11 +175,19 @@ void handle_outgoing_frames(Host* host, struct timeval curr_timeval) {
 		}
     }
 
-    //1) Within the for loop, check if the window is not full and there's space to send more frames 
-    //2) If there is, pop from the buffered_outframes_head queue and fill your send_window_slot data structure with appropriate fields. 
-    //3) Append the popped frame to the host->outgoing_frames_head
+    Frame* peeked = (Frame*)ll_peek_node(host->buffered_outframes_head);
+    if (peeked == NULL) {
+        memcpy(host->latest_timeout, &curr_timeval, sizeof(struct timeval));
+        timeval_usecplus(host->latest_timeout, additional_ts);
+        return;
+    }
+    uint8_t dst_id = peeked->dst_id;
+
+    int count = count_frames_in_flight(host, dst_id);
+
     for (int i = 0; i < glb_sysconfig.window_size && ll_get_length(host->buffered_outframes_head) > 0; i++) {
-        if (host->send_window[i].frame == NULL) {
+        if (host->send_window[i].frame == NULL &&
+            count < (int)host->cc[dst_id].cwnd) {
             LLnode* ll_outframe_node = ll_pop_node(&host->buffered_outframes_head);
             Frame* outgoing_frame = ll_outframe_node->value;
 
@@ -176,21 +195,22 @@ void handle_outgoing_frames(Host* host, struct timeval curr_timeval) {
             assert(send_copy);
             memcpy(send_copy, outgoing_frame, sizeof(Frame));
             ll_append_node(&host->outgoing_frames_head, send_copy);
-            
+
             //Set a timeout for this frame
-            //NOTE: Each dataframe(not ack frame) that is appended to the 
-            //host->outgoing_frames_head has to have a 10ms offset from 
-            //the previous frame to enable selective retransmission mechanism. 
+            //NOTE: Each dataframe(not ack frame) that is appended to the
+            //host->outgoing_frames_head has to have a 10ms offset from
+            //the previous frame to enable selective retransmission mechanism.
             //Already implemented below
             struct timeval* next_timeout = malloc(sizeof(struct timeval));
-            memcpy(next_timeout, &curr_timeval, sizeof(struct timeval)); 
+            memcpy(next_timeout, &curr_timeval, sizeof(struct timeval));
             timeval_usecplus(next_timeout, TIMEOUT_INTERVAL_USEC + additional_ts);
             additional_ts += 10000; //ADD ADDITIONAL 10ms
 
-			host->send_window[i].frame = outgoing_frame;
-			host->send_window[i].timeout = next_timeout;
+            host->send_window[i].frame = outgoing_frame;
+            host->send_window[i].timeout = next_timeout;
 
             free(ll_outframe_node);
+            count++;
         }
     }
 
